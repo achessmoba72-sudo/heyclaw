@@ -1,0 +1,47 @@
+{
+  "defaults": {
+    "workspace": "./workspace",
+    "agent": {
+      "firstMessage": "Hello, I'm Andromeda. How can I help you today?",
+      "llmModel": "gemini-3.1-flash-lite",
+      "llmTemperature": 0.2,
+      "llmMaxOutputTokens": 320,
+      "responseTimeoutSeconds": 30
+    },
+    "memory": {
+      "mem0": {
+        "apiKey": "your_key_here",
+        "enabled": true
+      }
+    }
+  },
+  "gateway": {
+    "apiHost": "127.0.0.1",
+    "apiPort": 8000,
+    "publicWsUrl": "wss://your-public-host.example/ws"
+  },
+  "providers": {
+    "gemini": {
+      "geminiApiKey": ""
+    },
+    "elevenlabs": {
+      "elevenlabsApiKey": "",
+      "elevenlabsSpeechEngineId": ""
+    }
+  },
+  "tools": {
+    "mcpServers": {
+      "perplexity": {
+        "command": "npx",
+        "args": [
+          "-yq",
+          "@perplexity-ai/mcp-server"
+        ],
+        "env": {
+          "PERPLEXITY_API_KEY": "your_key_here"
+        },
+        "url": ""
+      }
+    }
+  }
+}

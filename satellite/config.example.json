@@ -1,0 +1,20 @@
+{
+  "defaults": {
+    "agent": {
+      "firstMessage": "Hello, I'm Andromeda. How can I help you today?",
+      "audioInputDeviceIndex": null,
+      "audioOutputDeviceIndex": null,
+      "echoSuppressionMode": "off",
+      "echoGuardMs": 350,
+      "wakeWordEnabled": true,
+      "wakeWordModel": "andromeda",
+      "wakeWordThreshold": 0.5
+    }
+  },
+  "providers": {
+    "elevenlabs": {
+      "elevenlabsApiKey": "",
+      "elevenlabsSpeechEngineId": ""
+    }
+  }
+}

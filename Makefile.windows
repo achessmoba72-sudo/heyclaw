@@ -1,0 +1,45 @@
+SHELL := pwsh.exe
+.SHELLFLAGS := -NoLogo -NoProfile -ExecutionPolicy Bypass -Command
+.DEFAULT_GOAL := help
+
+POWERSHELL := pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass
+HEYCLAW_DIR := heyclaw
+SATELLITE_DIR := satellite
+DEV_SCRIPT := $(CURDIR)/$(HEYCLAW_DIR)/scripts/dev.ps1
+
+.PHONY: setup kill backend satellite backend-api backend-ngrok lint format typecheck check clean
+
+setup:
+	@$(POWERSHELL) -File "$(DEV_SCRIPT)" setup
+
+kill:
+	@$(POWERSHELL) -File "$(DEV_SCRIPT)" kill
+
+backend:
+	@$(POWERSHELL) -File "$(DEV_SCRIPT)" backend
+
+satellite:
+	@$(POWERSHELL) -File "$(DEV_SCRIPT)" satellite
+
+backend-api:
+	@$(POWERSHELL) -File "$(DEV_SCRIPT)" backend-api
+
+backend-ngrok:
+	@$(POWERSHELL) -File "$(DEV_SCRIPT)" backend-ngrok
+
+lint:
+	Set-Location -LiteralPath "$(HEYCLAW_DIR)"; uv run ruff check app/ tests/ --unsafe-fixes --fix
+	Set-Location -LiteralPath "$(SATELLITE_DIR)"; uv run ruff check app/ tests/ --unsafe-fixes --fix
+
+format:
+	Set-Location -LiteralPath "$(HEYCLAW_DIR)"; uv run ruff format app/ tests/
+	Set-Location -LiteralPath "$(SATELLITE_DIR)"; uv run ruff format app/ tests/
+
+typecheck:
+	Set-Location -LiteralPath "$(HEYCLAW_DIR)"; uv run mypy app/
+	Set-Location -LiteralPath "$(SATELLITE_DIR)"; uv run mypy app/
+
+check: format lint typecheck
+
+clean:
+	@$(POWERSHELL) -File "$(DEV_SCRIPT)" clean
