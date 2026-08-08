@@ -17,4 +17,4 @@ Use this skill when the user explicitly asks to search for, verify, or check inf
 
 ## Spoken response
 
-Summarize the result in natural, concise English. Do not speak URLs, Markdown, citation numbers, server or tool names, and do not describe the internal process.
+Summarize the result naturally and concisely in the user's language. Do not speak URLs, Markdown, citation numbers, server or tool names, and do not describe the internal process.
