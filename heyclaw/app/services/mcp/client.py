@@ -10,11 +10,11 @@ from typing import Any, Literal
 
 import dspy
 import orjson
+from heyclaw_shared.performance import measure_performance
 from loguru import logger
 from mcp import Client, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 
-from app.core.performance import measure_performance
 from app.services.mcp.config import MCPServerConfig
 
 
@@ -131,17 +131,21 @@ def _to_dspy_tool(client: Client, server_name: str, tool: types.Tool) -> Any:
             )
 
         logger.info("MCP → {}/{}", server_name, tool.name)
-        logger.debug(orjson.dumps({"name": tool.name, "arguments": kwargs}).decode())
+        logger.opt(lazy=True).debug(
+            "{}",
+            lambda: orjson.dumps({"name": tool.name, "arguments": kwargs}).decode(),
+        )
 
         async def on_progress(
             progress: float,
             total: float | None,
             message: str | None,
         ) -> None:
-            logger.debug(
-                orjson.dumps(
+            logger.opt(lazy=True).debug(
+                "{}",
+                lambda: orjson.dumps(
                     {"progress": progress, "total": total, "message": message}
-                ).decode()
+                ).decode(),
             )
 
         async def report_slow_tool() -> None:
@@ -158,7 +162,9 @@ def _to_dspy_tool(client: Client, server_name: str, tool: types.Tool) -> Any:
                     )
                 )
 
-        slow_tool_task = asyncio.create_task(report_slow_tool())
+        slow_tool_task = (
+            asyncio.create_task(report_slow_tool()) if listener is not None else None
+        )
         try:
             with measure_performance(f"mcp.tool.call.{server_name}.{tool.name}"):
                 result = await client.call_tool(
@@ -167,11 +173,15 @@ def _to_dspy_tool(client: Client, server_name: str, tool: types.Tool) -> Any:
                     progress_callback=on_progress,
                 )
         finally:
-            slow_tool_task.cancel()
-            await asyncio.gather(slow_tool_task, return_exceptions=True)
+            if slow_tool_task is not None:
+                slow_tool_task.cancel()
+                await asyncio.gather(slow_tool_task, return_exceptions=True)
 
-        logger.debug(
-            orjson.dumps(result.model_dump(by_alias=True, exclude_none=True)).decode()
+        logger.opt(lazy=True).debug(
+            "{}",
+            lambda: orjson.dumps(
+                result.model_dump(by_alias=True, exclude_none=True)
+            ).decode(),
         )
         response = _mcp_response_text(result)
         if result.is_error:

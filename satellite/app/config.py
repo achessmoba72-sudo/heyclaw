@@ -1,19 +1,8 @@
-from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-import orjson
+from heyclaw_shared.config import ElevenLabsConfig, load_json_config
 from pydantic import BaseModel, ConfigDict, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore", case_sensitive=False
-    )
-
-    logging_level: str = "INFO"
-    log_to_file: bool = False
 
 
 class AgentConfig(BaseModel):
@@ -43,15 +32,6 @@ class DefaultsConfig(BaseModel):
     agent: AgentConfig
 
 
-class ElevenLabsConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    elevenlabs_api_key: str = Field(default="", alias="elevenlabsApiKey")
-    elevenlabs_speech_engine_id: str = Field(
-        default="", alias="elevenlabsSpeechEngineId"
-    )
-
-
 class ProvidersConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -69,9 +49,4 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.json"
 
 
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> SatelliteConfig:
-    return SatelliteConfig.model_validate(orjson.loads(path.read_bytes()))
-
-
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
+    return load_json_config(SatelliteConfig, path)

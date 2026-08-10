@@ -6,10 +6,14 @@ from typing import Any
 import httpx
 import orjson
 from elevenlabs import AsyncElevenLabs
+from heyclaw_shared.performance import measure_performance
 from loguru import logger
 
-from app.core.performance import measure_performance
-from app.domain.conversation import has_meaningful_text, normalize_transcript
+from app.domain.conversation import (
+    has_meaningful_text,
+    latest_user_content,
+    normalize_transcript,
+)
 from app.services.llm.dspy_backend import DspyResponseGenerator
 
 _SPEECH_ENGINE_PORT = 3001
@@ -28,18 +32,14 @@ class _SharedResponse:
     ) -> None:
         self.fingerprint = fingerprint
         self.persisted = False
+        self.done = False
         self._chunks: list[str] = []
         self._condition = asyncio.Condition()
-        self._done = False
         self._error: BaseException | None = None
         self._task = asyncio.create_task(
             self._consume(stream),
             name=f"generate-response-{conversation_id}",
         )
-
-    @property
-    def done(self) -> bool:
-        return self._done
 
     async def subscribe(self) -> AsyncIterator[str]:
         index = 0
@@ -47,12 +47,12 @@ class _SharedResponse:
             async with self._condition:
                 await self._condition.wait_for(
                     lambda current_index=index: (
-                        current_index < len(self._chunks) or self._done
+                        current_index < len(self._chunks) or self.done
                     )
                 )
                 chunks = self._chunks[index:]
                 index = len(self._chunks)
-                done = self._done
+                done = self.done
                 error = self._error
             for chunk in chunks:
                 yield chunk
@@ -76,7 +76,7 @@ class _SharedResponse:
             self._error = exc
         finally:
             async with self._condition:
-                self._done = True
+                self.done = True
                 self._condition.notify_all()
 
 
@@ -101,15 +101,6 @@ class SpeechEngineRuntime:
         self._seen_transcripts: dict[str, set[tuple[tuple[str, str], ...]]] = {}
 
     async def serve(self) -> None:
-        if not self._api_key:
-            raise RuntimeError(
-                "providers.elevenlabs.elevenlabsApiKey is not configured"
-            )
-        if not self._engine_id:
-            raise RuntimeError(
-                "providers.elevenlabs.elevenlabsSpeechEngineId is not configured"
-            )
-
         with measure_performance("speech_engine.agent.initialize"):
             await self._generator.start()
         self._http_client = httpx.AsyncClient(timeout=30)
@@ -138,10 +129,9 @@ class SpeechEngineRuntime:
         )
 
     async def close(self) -> None:
-        if self._responses:
-            for response in self._responses.values():
-                await response.close()
-            self._responses.clear()
+        for response in self._responses.values():
+            await response.close()
+        self._responses.clear()
         self._seen_transcripts.clear()
         await self._generator.close()
         if self._http_client is not None:
@@ -155,26 +145,20 @@ class SpeechEngineRuntime:
         if not conversation_id:
             raise RuntimeError("Missing conversation ID")
         bound_logger = logger.bind(conversation_id=conversation_id)
-        latest_user = next(
-            (
-                message.content.strip()
-                for message in reversed(transcript)
-                if message.role == "user"
-            ),
-            "",
-        )
+        latest_user = latest_user_content(transcript)
         if not has_meaningful_text(latest_user):
             bound_logger.debug("User turn has no semantic content: ignoring it")
             return
 
         messages = normalize_transcript(transcript)
-        bound_logger.debug(
-            orjson.dumps(
+        bound_logger.opt(lazy=True).debug(
+            "{}",
+            lambda: orjson.dumps(
                 [
                     {"role": message.role, "content": message.content}
                     for message in messages
                 ]
-            ).decode()
+            ).decode(),
         )
         fingerprint = tuple((message.role, message.content) for message in messages)
         response = self._responses.get(conversation_id)
@@ -200,7 +184,7 @@ class SpeechEngineRuntime:
         response_parts: list[str] = []
         stream = self._instrument_stream(
             response.subscribe(),
-            conversation_id=conversation_id,
+            bound_logger=bound_logger,
             started_at=started_at,
             response_parts=response_parts,
         )
@@ -211,22 +195,27 @@ class SpeechEngineRuntime:
                     await session.send_response(stream)
                 completed = True
         except TimeoutError:
-            logger.bind(conversation_id=conversation_id).warning(
+            bound_logger.warning(
                 "Generation stopped after {} seconds", self._response_timeout_seconds
             )
             await session.send_response("I'm sorry, the response is taking too long.")
         finally:
-            if completed and response_parts and not response.persisted:
-                response.persisted = True
-                await self._generator.remember(
-                    latest_user, "".join(response_parts).strip()
+            if completed:
+                spoken = "".join(response_parts).strip()
+                if spoken:
+                    bound_logger.info("HeyClaw: {}", spoken)
+                bound_logger.debug(
+                    "Response completed in {:.0f} ms", (monotonic() - started_at) * 1000
                 )
+                if response_parts and not response.persisted:
+                    response.persisted = True
+                    await self._generator.remember(latest_user, spoken)
 
+    @staticmethod
     async def _instrument_stream(
-        self,
         stream: AsyncIterator[str],
         *,
-        conversation_id: str,
+        bound_logger: Any,
         started_at: float,
         response_parts: list[str],
     ) -> AsyncIterator[str]:
@@ -234,17 +223,11 @@ class SpeechEngineRuntime:
         async for chunk in stream:
             if first_chunk:
                 first_chunk = False
-                logger.bind(conversation_id=conversation_id).debug(
+                bound_logger.debug(
                     "First token in {:.0f} ms", (monotonic() - started_at) * 1000
                 )
             response_parts.append(chunk)
             yield chunk
-        response = "".join(response_parts).strip()
-        if response:
-            logger.bind(conversation_id=conversation_id).info("HeyClaw: {}", response)
-        logger.bind(conversation_id=conversation_id).debug(
-            "Response completed in {:.0f} ms", (monotonic() - started_at) * 1000
-        )
 
     async def _on_close(self, session: Any) -> None:
         await self._close_response(session.conversation_id)

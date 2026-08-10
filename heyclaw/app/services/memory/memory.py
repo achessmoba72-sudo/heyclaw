@@ -1,10 +1,9 @@
 from typing import Any
 
 import orjson
+from heyclaw_shared.performance import measure_performance
 from loguru import logger
 from mem0 import AsyncMemoryClient
-
-from app.core.performance import measure_performance
 
 _USER_ID = "local-user"
 _SEARCH_LIMIT = 5
@@ -65,7 +64,7 @@ class Mem0Memory:
                 user_id=_USER_ID,
                 custom_instructions=_CUSTOM_INSTRUCTIONS,
             )
-        logger.debug(orjson.dumps(response).decode())
+        logger.opt(lazy=True).debug("{}", lambda: orjson.dumps(response).decode())
 
     async def close(self) -> None:
         if self._client is not None:

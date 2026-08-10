@@ -9,11 +9,11 @@ from elevenlabs.types import (
     SpeechEngineConfig,
     SpeechEngineConversationInitiationClientDataConfig,
 )
+from heyclaw_shared.performance import measure_performance
+from heyclaw_shared.settings import get_settings
 from loguru import logger
 
-from app.core.config import get_settings
 from app.core.logging import configure_logging
-from app.core.performance import measure_performance
 from app.services.mcp.config import load_config
 
 
@@ -61,16 +61,12 @@ def run_all() -> None:
 
 async def _create_engine() -> None:
     config = load_config()
-    elevenlabs = config.providers.elevenlabs
-    if not elevenlabs.elevenlabs_api_key:
-        raise RuntimeError(
-            "providers.elevenlabs.elevenlabsApiKey is not configured"
-        )
+    api_key = config.providers.elevenlabs.require_api_key()
     if not config.gateway.public_ws_url:
         raise RuntimeError("gateway.publicWsUrl is not configured")
     async with httpx.AsyncClient(timeout=30) as http_client:
         client = AsyncElevenLabs(
-            api_key=elevenlabs.elevenlabs_api_key,
+            api_key=api_key,
             httpx_client=http_client,
         )
         with measure_performance("elevenlabs.speech_engine.create"):
@@ -102,10 +98,10 @@ async def _benchmark_llm() -> None:
     from app.domain.conversation import ConversationMessage
     from app.runtime.factory import create_dspy_response_generator
 
-    settings = get_settings()
-    agent_defaults = load_config().defaults.agent
-    configure_logging(settings)
-    generator = create_dspy_response_generator(settings)
+    config = load_config()
+    agent_defaults = config.defaults.agent
+    configure_logging(get_settings())
+    generator = create_dspy_response_generator(config)
     started_at = monotonic()
     first_token_at: float | None = None
     chunks: list[str] = []

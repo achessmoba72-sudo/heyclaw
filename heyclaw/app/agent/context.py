@@ -1,8 +1,9 @@
 import asyncio
 from pathlib import Path
 
+from heyclaw_shared.performance import measure_performance
+
 from app.agent.skills import SkillCatalog
-from app.core.performance import measure_performance
 
 
 class WorkspaceContext:

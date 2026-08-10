@@ -8,8 +8,8 @@ from mcp import Tool, types
 import app.services.mcp.client as mcp_client
 from app.domain.conversation import ConversationMessage
 from app.services.llm.dspy_backend import DspyResponseGenerator
-from app.services.mcp import MCPToolProvider, load_config
-from app.services.mcp.client import _to_dspy_tool
+from app.services.mcp.client import MCPToolProvider, _to_dspy_tool
+from app.services.mcp.config import load_config
 
 
 class FakeClient:

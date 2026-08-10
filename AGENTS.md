@@ -1,6 +1,6 @@
 # HeyClaw
 
-Python 3.12 voice assistant powered by ElevenLabs, Gemini, Mem0, and MCP tools. Server code and tests live in `heyclaw/`; local audio and wake-word code lives in `satellite/app/`, with tests in `satellite/tests/`. `heyclaw/workspace/` contains the instructions, profile, and skills loaded by the assistant at runtime.
+Python 3.12 voice assistant powered by ElevenLabs, Gemini, Mem0, and MCP tools. Server code and tests live in `heyclaw/`; local audio and wake-word code lives in `satellite/app/`, with tests in `satellite/tests/`. `shared/heyclaw_shared/` is the `heyclaw-shared` package that both components install as an editable path dependency; it holds the settings, logging, performance instrumentation, and ElevenLabs provider config they have in common. `heyclaw/workspace/` contains the instructions, profile, and skills loaded by the assistant at runtime.
 
 ## Configuration
 
@@ -15,7 +15,7 @@ Python 3.12 voice assistant powered by ElevenLabs, Gemini, Mem0, and MCP tools. 
 
 Use only `Makefile` targets from the repository root:
 
-- `make setup`: installs Python 3.12 and dependencies for both components.
+- `make setup`: installs Python 3.12 and dependencies for both components; each `uv sync` also installs `shared/` in editable mode.
 - `make backend`: stops local project processes, then starts the backend, Speech Engine, and ngrok tunnel.
 - `make satellite`: starts the interactive voice satellite; it requires microphone and audio devices configured in `satellite/config.json`.
 - `make kill`: stops processes on the ports used by the project.
@@ -30,6 +30,7 @@ Windows uses the separate `Makefile.windows`, backed by `heyclaw/scripts/dev.ps1
 ## Working Rules
 
 - Treat `Makefile`, `Makefile.windows`, and each component's `.env.example`, `config.example.json`, and `pyproject.toml` as the operational sources of truth.
+- Code needed by both `heyclaw/` and `satellite/` belongs in `shared/heyclaw_shared/`; neither component may import from the other.
 - Do not modify either Makefile unless explicitly requested.
 - Never expose or commit either component's `.env` or `config.json`.
 - Use `make check` for static verification; tests currently have no dedicated `Makefile` target.

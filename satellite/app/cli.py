@@ -6,6 +6,8 @@ from elevenlabs.conversational_ai.conversation import (
     Conversation,
     ConversationInitiationData,
 )
+from heyclaw_shared.performance import measure_performance
+from heyclaw_shared.settings import get_settings
 from loguru import logger
 
 from app.audio.pyaudio_interface import (
@@ -13,9 +15,8 @@ from app.audio.pyaudio_interface import (
     audio_devices,
 )
 from app.audio.wake_word import WakeWordDetector
-from app.config import get_settings, load_config
+from app.config import load_config
 from app.logging import configure_logging
-from app.performance import measure_performance
 
 
 def _log_user_transcript(transcript: str) -> None:
@@ -42,14 +43,8 @@ def run() -> None:
     agent = config.defaults.agent
     elevenlabs = config.providers.elevenlabs
     configure_logging(settings)
-    if not elevenlabs.elevenlabs_api_key:
-        raise RuntimeError(
-            "providers.elevenlabs.elevenlabsApiKey is not configured"
-        )
-    if not elevenlabs.elevenlabs_speech_engine_id:
-        raise RuntimeError(
-            "providers.elevenlabs.elevenlabsSpeechEngineId is not configured"
-        )
+    api_key = elevenlabs.require_api_key()
+    speech_engine_id = elevenlabs.require_speech_engine_id()
 
     if agent.wake_word_enabled:
         detector = WakeWordDetector(
@@ -72,8 +67,8 @@ def run() -> None:
         echo_guard_ms=agent.echo_guard_ms,
     )
     conversation = Conversation(
-        ElevenLabs(api_key=elevenlabs.elevenlabs_api_key),
-        elevenlabs.elevenlabs_speech_engine_id,
+        ElevenLabs(api_key=api_key),
+        speech_engine_id,
         requires_auth=True,
         audio_interface=audio,
         config=ConversationInitiationData(

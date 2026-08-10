@@ -211,6 +211,7 @@ dependencies = [
     { name = "aec-audio-processing" },
     { name = "ai-edge-litert" },
     { name = "elevenlabs" },
+    { name = "heyclaw-shared" },
     { name = "loguru" },
     { name = "numpy" },
     { name = "openwakeword" },
@@ -234,6 +235,7 @@ requires-dist = [
     { name = "aec-audio-processing", specifier = ">=1.0.1,<2.0.0" },
     { name = "ai-edge-litert", specifier = ">=2.1.6" },
     { name = "elevenlabs", specifier = ">=2.15.0" },
+    { name = "heyclaw-shared", editable = "../shared" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "openwakeword", git = "https://github.com/dscripka/openWakeWord.git?rev=368c03716d1e92591906a84949bc477f3a834455" },
@@ -250,6 +252,25 @@ dev = [
     { name = "pytest-cov", specifier = ">=6.2.0" },
     { name = "ruff", specifier = ">=0.12.0" },
     { name = "types-pyaudio", specifier = ">=0.2.16" },
+]
+
+[[package]]
+name = "heyclaw-shared"
+version = "0.1.0"
+source = { editable = "../shared" }
+dependencies = [
+    { name = "loguru" },
+    { name = "orjson" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "orjson", specifier = ">=3.11.0" },
+    { name = "pydantic", specifier = ">=2.11.0" },
+    { name = "pydantic-settings", specifier = ">=2.10.0" },
 ]
 
 [[package]]

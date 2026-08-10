@@ -9,14 +9,24 @@ from typing import Any
 
 import pyaudio
 from aec_audio_processing import AudioProcessor
-
-from app.performance import measure_performance
+from heyclaw_shared.performance import measure_performance
 
 _NATIVE_AUDIO_STDERR_LOCK = threading.Lock()
 
 
+def close_stream(stream: Any) -> None:
+    """Stop and close a PyAudio stream, tolerating an already closed device."""
+    if stream is None:
+        return
+    with suppress(OSError):
+        if stream.is_active():
+            stream.stop_stream()
+    with suppress(OSError):
+        stream.close()
+
+
 @contextmanager
-def _suppress_native_audio_probe_noise() -> Iterator[None]:
+def suppress_native_audio_probe_noise() -> Iterator[None]:
     """Hide Linux audio-backend probe noise while preserving Python exceptions."""
     if not sys.platform.startswith("linux"):
         yield
@@ -94,7 +104,7 @@ class PyAudioInterface:
             self._stopped = False
             self._aec_input_buffer.clear()
             self._aec_output_buffer.clear()
-            with _suppress_native_audio_probe_noise():
+            with suppress_native_audio_probe_noise():
                 self._audio = pyaudio.PyAudio()
                 self._input_stream = self._audio.open(
                     format=pyaudio.paInt16,
@@ -134,9 +144,9 @@ class PyAudioInterface:
             if self._output_thread is not None:
                 self._output_thread.join(timeout=2)
                 self._output_thread = None
-            self._close_stream(self._input_stream)
+            close_stream(self._input_stream)
             self._input_stream = None
-            self._close_stream(self._output_stream)
+            close_stream(self._output_stream)
             self._output_stream = None
             if self._audio is not None:
                 with suppress(OSError):
@@ -144,16 +154,6 @@ class PyAudioInterface:
                 self._audio = None
         finally:
             self._stop_lock.release()
-
-    @staticmethod
-    def _close_stream(stream: Any) -> None:
-        if stream is None:
-            return
-        with suppress(OSError):
-            if stream.is_active():
-                stream.stop_stream()
-        with suppress(OSError):
-            stream.close()
 
     def output(self, audio: bytes) -> None:
         if self._gate_microphone_during_playback:
@@ -240,7 +240,7 @@ class PyAudioInterface:
 
 
 def audio_devices() -> list[dict[str, Any]]:
-    with _suppress_native_audio_probe_noise():
+    with suppress_native_audio_probe_noise():
         audio = pyaudio.PyAudio()
     try:
         devices = []

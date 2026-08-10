@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
@@ -17,6 +18,18 @@ class SpeechEngineMessage(Protocol):
 
 def has_meaningful_text(content: str) -> bool:
     return any(character.isalnum() for character in content)
+
+
+def latest_user_content(messages: Sequence[SpeechEngineMessage]) -> str:
+    """Return the most recent user turn, or an empty string when there is none."""
+    return next(
+        (
+            message.content.strip()
+            for message in reversed(messages)
+            if message.role == "user"
+        ),
+        "",
+    )
 
 
 def normalize_transcript(

@@ -2,10 +2,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from heyclaw_shared.settings import get_settings
 
 from app import __version__
 from app.api.router import api_router
-from app.core.config import get_settings
 from app.core.logging import configure_logging
 
 

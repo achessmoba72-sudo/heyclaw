@@ -11,6 +11,7 @@ dependencies = [
     "aec-audio-processing>=1.0.1,<2.0.0",
     "ai-edge-litert>=2.1.6",
     "elevenlabs>=2.15.0",
+    "heyclaw-shared",
     "loguru>=0.7.3",
     "numpy>=2.0.0",
     "openwakeword @ git+https://github.com/dscripka/openWakeWord.git@368c03716d1e92591906a84949bc477f3a834455",
@@ -32,6 +33,9 @@ dev = [
     "ruff>=0.12.0",
     "types-pyaudio>=0.2.16",
 ]
+
+[tool.uv.sources]
+heyclaw-shared = { path = "../shared", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

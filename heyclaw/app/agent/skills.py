@@ -8,8 +8,7 @@ from typing import Any
 
 import dspy
 import orjson
-
-from app.core.performance import measure_performance
+from heyclaw_shared.performance import measure_performance
 
 _FRONTMATTER = re.compile(r"^---\s*\r?\n(.*?)\r?\n---\s*\r?\n?", re.DOTALL)
 _SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")

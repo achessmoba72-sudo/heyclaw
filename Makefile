@@ -4,6 +4,7 @@ SHELL := /bin/bash
 
 BACKEND_DIR := heyclaw
 SATELLITE_DIR := satellite
+SHARED_DIR := shared
 BACKEND_UV_RUN := cd $(BACKEND_DIR) && uv run
 SATELLITE_UV_RUN := cd $(SATELLITE_DIR) && uv run
 PUBLIC_WS_HOST_CMD := cd "$(BACKEND_DIR)" && uv run python -c 'import json, sys; from pathlib import Path; from urllib.parse import urlparse; parsed = urlparse(json.loads(Path("config.json").read_text())["gateway"]["publicWsUrl"]); sys.exit("gateway.publicWsUrl must be a valid wss:// URL ending in /ws") if parsed.scheme != "wss" or not parsed.hostname or parsed.path != "/ws" else print(parsed.hostname)'
@@ -65,21 +66,21 @@ satellite:
 # ── Quality ───────────────────────────────────────────────────────────────────
 
 lint:
-	cd "$(BACKEND_DIR)" && uv run ruff check app/ tests/ --unsafe-fixes --fix
+	cd "$(BACKEND_DIR)" && uv run ruff check app/ tests/ ../$(SHARED_DIR)/heyclaw_shared/ --unsafe-fixes --fix
 	cd "$(SATELLITE_DIR)" && uv run ruff check app/ tests/ --unsafe-fixes --fix
 
 format:
-	cd "$(BACKEND_DIR)" && uv run ruff format app/ tests/
+	cd "$(BACKEND_DIR)" && uv run ruff format app/ tests/ ../$(SHARED_DIR)/heyclaw_shared/
 	cd "$(SATELLITE_DIR)" && uv run ruff format app/ tests/
 
 typecheck:
-	cd "$(BACKEND_DIR)" && uv run mypy app/
+	cd "$(BACKEND_DIR)" && uv run mypy app/ ../$(SHARED_DIR)/heyclaw_shared/
 	cd "$(SATELLITE_DIR)" && uv run mypy app/
 
 check: format lint typecheck
 
 clean:
-	find $(BACKEND_DIR) $(SATELLITE_DIR) -not -path '*/.venv/*' -type d \( \
+	find $(BACKEND_DIR) $(SATELLITE_DIR) $(SHARED_DIR) -not -path '*/.venv/*' -type d \( \
 		-name "__pycache__" \
 		-o -name "logs" \
 		-o -name ".pytest_cache" \
@@ -87,3 +88,7 @@ clean:
 		-o -name ".mypy_cache" \
 		-o -name "*.egg-info" \
 	\) -exec rm -rf {} + 2>/dev/null || true
+	find $(BACKEND_DIR) $(SATELLITE_DIR) $(SHARED_DIR) -not -path '*/.venv/*' -type f \( \
+		-name ".coverage" \
+		-o -name ".coverage.*" \
+	\) -delete 2>/dev/null || true

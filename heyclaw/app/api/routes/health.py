@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from app import __version__
 from app.schemas.health import HealthResponse, ReadinessResponse
-from app.services.mcp import load_config
+from app.services.mcp.config import load_config
 
 router = APIRouter(tags=["health"])
 

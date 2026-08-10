@@ -5,11 +5,15 @@ from typing import Any
 
 import dspy
 import orjson
+from heyclaw_shared.performance import measure_performance
 
 from app.agent import SkillCatalog, WorkspaceContext
-from app.core.performance import measure_performance
-from app.domain.conversation import ConversationMessage
-from app.services.mcp import MCPToolEvent, MCPToolProvider, observe_mcp_tool_events
+from app.domain.conversation import ConversationMessage, latest_user_content
+from app.services.mcp.client import (
+    MCPToolEvent,
+    MCPToolProvider,
+    observe_mcp_tool_events,
+)
 from app.services.mcp.config import LLMProvider
 from app.services.memory.base import AgentMemory
 
@@ -122,12 +126,7 @@ class DspyResponseGenerator:
         memory: AgentMemory,
     ) -> None:
         if not api_key:
-            api_key_name = {
-                "gemini": "geminiApiKey",
-                "openai": "openaiApiKey",
-                "anthropic": "anthropicApiKey",
-            }[provider]
-            raise ValueError(f"providers.{provider}.{api_key_name} is not configured")
+            raise ValueError(f"providers.{provider}.{provider}ApiKey is not configured")
         normalized_model = _normalize_model(provider, model)
         lm_options: dict[str, Any] = {
             "api_key": api_key,
@@ -149,16 +148,18 @@ class DspyResponseGenerator:
 
     async def start(self) -> None:
         with measure_performance("dspy.generator.start"):
-            await self._memory.start()
-            await self._get_program()
-            self._workspace_prompt = await self._workspace_context.build()
+            # The workspace summary needs the tool list, so it waits for the program;
+            # memory initialization is independent and runs alongside it.
+            await asyncio.gather(self._memory.start(), self._build_workspace_prompt())
+
+    async def _build_workspace_prompt(self) -> None:
+        await self._get_program()
+        self._workspace_prompt = await self._workspace_context.build()
 
     async def stream(self, messages: list[ConversationMessage]) -> AsyncIterator[str]:
         if self._workspace_prompt is None:
             raise RuntimeError("DSPy generator is not initialized")
-        latest_user = next(
-            item.content for item in reversed(messages) if item.role == "user"
-        )
+        latest_user = latest_user_content(messages)
         memory_context = await self._memory.search(latest_user)
         conversation = (
             f"GET DATE TODAY: {datetime.now().astimezone().isoformat(timespec='seconds')}\n"

@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-import orjson
+from heyclaw_shared.config import ElevenLabsConfig, load_json_config
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 LLMProvider = Literal["gemini", "openai", "anthropic"]
@@ -78,24 +78,13 @@ class AnthropicProviderConfig(BaseModel):
     anthropic_api_key: str = Field(default="", alias="anthropicApiKey")
 
 
-class ElevenLabsProviderConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    elevenlabs_api_key: str = Field(default="", alias="elevenlabsApiKey")
-    elevenlabs_speech_engine_id: str = Field(
-        default="", alias="elevenlabsSpeechEngineId"
-    )
-
-
 class ProvidersConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     gemini: GeminiProviderConfig = Field(default_factory=GeminiProviderConfig)
     openai: OpenAIProviderConfig = Field(default_factory=OpenAIProviderConfig)
     anthropic: AnthropicProviderConfig = Field(default_factory=AnthropicProviderConfig)
-    elevenlabs: ElevenLabsProviderConfig = Field(
-        default_factory=ElevenLabsProviderConfig
-    )
+    elevenlabs: ElevenLabsConfig = Field(default_factory=ElevenLabsConfig)
 
     def api_key_for(self, provider: LLMProvider) -> str:
         if provider == "gemini":
@@ -134,7 +123,7 @@ DEFAULT_MCP_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config.json"
 
 
 def load_config(path: Path = DEFAULT_MCP_CONFIG_PATH) -> HeyClawConfig:
-    return HeyClawConfig.model_validate(orjson.loads(path.read_bytes()))
+    return load_json_config(HeyClawConfig, path)
 
 
 def resolve_workspace_path(

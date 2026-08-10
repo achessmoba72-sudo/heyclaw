@@ -7,7 +7,8 @@ import pyaudio
 from loguru import logger
 
 from app.audio.pyaudio_interface import (
-    _suppress_native_audio_probe_noise,
+    close_stream,
+    suppress_native_audio_probe_noise,
 )
 
 _BUNDLED_MODELS = {
@@ -58,7 +59,7 @@ class WakeWordDetector:
         audio: pyaudio.PyAudio | None = None
         stream = None
         try:
-            with _suppress_native_audio_probe_noise():
+            with suppress_native_audio_probe_noise():
                 audio = pyaudio.PyAudio()
                 stream = audio.open(
                     format=pyaudio.paInt16,
@@ -92,12 +93,7 @@ class WakeWordDetector:
                 if score >= self._threshold:
                     return score
         finally:
-            if stream is not None:
-                with suppress(OSError):
-                    if stream.is_active():
-                        stream.stop_stream()
-                with suppress(OSError):
-                    stream.close()
+            close_stream(stream)
             if audio is not None:
                 with suppress(OSError):
                     audio.terminate()

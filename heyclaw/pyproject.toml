@@ -12,6 +12,7 @@ dependencies = [
     "elevenlabs>=2.15.0",
     "fastapi>=0.116.0",
     "google-genai>=1.30.0",
+    "heyclaw-shared",
     "httpx>=0.28.0",
     "loguru>=0.7.3",
     "mcp>=2,<3",
@@ -37,6 +38,9 @@ dev = [
     "pytest-cov>=6.2.0",
     "ruff>=0.12.0",
 ]
+
+[tool.uv.sources]
+heyclaw-shared = { path = "../shared", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

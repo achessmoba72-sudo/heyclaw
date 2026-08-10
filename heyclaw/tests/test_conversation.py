@@ -1,12 +1,6 @@
-from dataclasses import dataclass
+from conftest import WireMessage
 
 from app.domain.conversation import normalize_transcript
-
-
-@dataclass
-class WireMessage:
-    role: str
-    content: str
 
 
 def test_normalize_transcript_maps_elevenlabs_roles() -> None:
