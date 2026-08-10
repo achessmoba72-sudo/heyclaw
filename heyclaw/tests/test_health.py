@@ -50,3 +50,31 @@ def test_readiness_uses_selected_llm_provider(monkeypatch: MonkeyPatch) -> None:
         "mem0_configured": True,
         "llm_model": "gpt-5-mini",
     }
+
+
+def test_readiness_does_not_require_mem0_when_disabled(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    config = HeyClawConfig.model_validate(
+        {
+            "defaults": {
+                "agent": {"firstMessage": "Hello"},
+                "memory": {"mem0": {"apiKey": "", "enabled": False}},
+            },
+            "providers": {
+                "gemini": {"geminiApiKey": "gemini-key"},
+                "elevenlabs": {
+                    "elevenlabsApiKey": "elevenlabs-key",
+                    "elevenlabsSpeechEngineId": "seng_test",
+                },
+            },
+        }
+    )
+    monkeypatch.setattr(health_routes, "load_config", lambda: config)
+
+    with TestClient(create_app()) as client:
+        response = client.get("/api/v1/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert response.json()["mem0_configured"] is False

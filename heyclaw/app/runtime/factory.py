@@ -9,6 +9,7 @@ from heyclaw_shared.settings import Settings
 from app.services.llm.dspy_backend import DspyResponseGenerator
 from app.services.mcp.client import MCPToolProvider
 from app.services.mcp.config import HeyClawConfig, load_config, resolve_workspace_path
+from app.services.memory.base import NullMemory
 from app.services.speech_engine import SpeechEngineRuntime
 
 
@@ -20,7 +21,9 @@ def create_dspy_response_generator(
     skills = SkillCatalog(workspace)
     mem0_config = config.defaults.memory.mem0
     agent_defaults = config.defaults.agent
-    memory = Mem0Memory(api_key=mem0_config.api_key)
+    memory = (
+        Mem0Memory(api_key=mem0_config.api_key) if mem0_config.enabled else NullMemory()
+    )
     return DspyResponseGenerator(
         provider=agent_defaults.llm_provider,
         api_key=config.providers.api_key_for(agent_defaults.llm_provider),

@@ -5,6 +5,7 @@
 config.json
 config.local.json
 config.*.local.json
+.config.json.tmp
 .mcp.json
 
 # Virtual environments
@@ -42,3 +43,4 @@ logs/
 .DS_Store
 Thumbs.db
 Desktop.ini
+*.backup

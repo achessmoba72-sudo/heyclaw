@@ -35,7 +35,7 @@ class ToolsConfig(BaseModel):
 class Mem0Config(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    api_key: str = Field(alias="apiKey", min_length=1)
+    api_key: str = Field(default="", alias="apiKey")
     enabled: bool = True
 
 

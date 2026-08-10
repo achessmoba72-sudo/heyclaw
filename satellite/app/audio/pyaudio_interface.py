@@ -243,9 +243,18 @@ def audio_devices() -> list[dict[str, Any]]:
     with suppress_native_audio_probe_noise():
         audio = pyaudio.PyAudio()
     try:
+        try:
+            default_input_index = int(audio.get_default_input_device_info()["index"])
+        except OSError:
+            default_input_index = None
+        try:
+            default_output_index = int(audio.get_default_output_device_info()["index"])
+        except OSError:
+            default_output_index = None
         devices = []
         for index in range(audio.get_device_count()):
             info = audio.get_device_info_by_index(index)
+            host_api = audio.get_host_api_info_by_index(int(info["hostApi"]))
             devices.append(
                 {
                     "index": index,
@@ -253,6 +262,9 @@ def audio_devices() -> list[dict[str, Any]]:
                     "inputs": int(info.get("maxInputChannels", 0)),
                     "outputs": int(info.get("maxOutputChannels", 0)),
                     "sample_rate": int(info.get("defaultSampleRate", 0)),
+                    "host_api": host_api.get("name", "unknown"),
+                    "default_input": index == default_input_index,
+                    "default_output": index == default_output_index,
                 }
             )
         return devices

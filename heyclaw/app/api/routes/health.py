@@ -29,7 +29,9 @@ async def readiness() -> ReadinessResponse:
     return ReadinessResponse(
         status=(
             "ready"
-            if speech_engine_configured and llm_configured and mem0_configured
+            if speech_engine_configured
+            and llm_configured
+            and (not mem0_config.enabled or mem0_configured)
             else "configuration_required"
         ),
         speech_engine_configured=speech_engine_configured,

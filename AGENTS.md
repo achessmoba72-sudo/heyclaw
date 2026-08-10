@@ -21,6 +21,16 @@ Use only `Makefile` targets from the repository root:
 - `make kill`: stops processes on the ports used by the project.
 - `make check`: formats the code, applies Ruff fixes, and runs type checking. It may modify files.
 
+After `make setup`, `uv run --project satellite heyclaw-satellite onboard`
+creates or refreshes both component `config.json` files without replacing existing
+values. It also recommends explicit PortAudio device indices; it is a CLI workflow,
+not a Makefile target. Pass `--update-audio` to replace only the existing audio
+indices and echo mode after the connected hardware changes; interactive terminals
+show selectable lists powered by Questionary.
+If the new hardware is not the Windows default, pass `--input-device-index` and/or
+`--output-device-index` together with `--update-audio` after inspecting
+`heyclaw-satellite devices`.
+
 Always specify a target: the default `help` goal is not defined.
 
 ## Windows (Secondary)

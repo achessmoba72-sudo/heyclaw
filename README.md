@@ -92,12 +92,57 @@ This connection model follows the official [ElevenLabs Speech Engine documentati
 
 ## 🔑 Configuration
 
-Create these local files from their examples:
+After installing the dependencies, create or refresh both JSON configuration files
+with the satellite CLI:
+
+```bash
+uv run --project satellite heyclaw-satellite onboard
+```
+
+`onboard` never replaces configured values. It creates missing files from their
+examples, adds fields introduced by newer versions, and fills unset audio device
+indices only when PortAudio can make a conservative recommendation. Existing API
+keys, IDs, model choices, and audio selections are preserved.
+
+After connecting a different microphone or output device, refresh only the audio
+selection while preserving every other setting. In an interactive terminal,
+`onboard` presents the connected input and output devices as selectable lists:
+
+```bash
+uv run --project satellite heyclaw-satellite onboard --update-audio
+```
+
+If Windows keeps the old defaults after you connect new hardware, list the current
+PortAudio indices and select the new endpoints explicitly:
+
+```bash
+uv run --project satellite heyclaw-satellite devices
+uv run --project satellite heyclaw-satellite onboard --update-audio --input-device-index 2 --output-device-index 4
+```
+
+### Echo suppression modes
+
+`defaults.agent.echoSuppressionMode` controls how satellite playback is kept out
+of the microphone stream:
+
+- `off` keeps full-duplex audio and performs no software suppression. Use it with
+  headphones or a speakerphone that exposes a matching hardware echo-cancelled
+  input/output pair. With ordinary speakers, playback can be transcribed as a new
+  user turn and trigger loops.
+- `gate` closes the microphone while the assistant is speaking and for
+  `echoGuardMs` afterward. It is the safest default for separate speakers, at the
+  cost of preventing the user from interrupting playback.
+- `aec` runs software acoustic echo cancellation using the playback stream as its
+  reference. It keeps interruption possible, but results depend on device and
+  driver timing; use it only after a real speaker test.
+
+`agc` (automatic gain control) is a different audio process and is not a supported
+`echoSuppressionMode` value.
+
+Prepare the logging environment files separately:
 
 - `heyclaw/.env` from `heyclaw/.env.example`;
-- `heyclaw/config.json` from `heyclaw/config.example.json`;
 - `satellite/.env` from `satellite/.env.example`;
-- `satellite/config.json` from `satellite/config.example.json`.
 
 The `.env` files contain logging settings only. Provider credentials, agent defaults, audio settings, memory, and MCP servers belong in the corresponding `config.json` files.
 
