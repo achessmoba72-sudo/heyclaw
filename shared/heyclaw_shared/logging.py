@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 from loguru import logger
 
+from heyclaw_shared.performance import set_performance_tracking
 from heyclaw_shared.settings import Settings
 
 
@@ -14,6 +15,7 @@ def configure_logging(
     quiet_loggers: Sequence[str] = (),
 ) -> None:
     """Route loguru to stderr and, when enabled, to a daily rotated file."""
+    set_performance_tracking(settings.debug)
     for logger_name in quiet_loggers:
         logging.getLogger(logger_name).setLevel(logging.ERROR)
 

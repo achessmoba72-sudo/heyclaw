@@ -33,7 +33,10 @@ _TOOL_EVENT_LISTENER: ContextVar[ToolEventListener | None] = ContextVar(
     "mcp_tool_event_listener", default=None
 )
 _CALL_IDS = count(1)
-_SLOW_TOOL_SECONDS = 6.0
+# Web searches routinely take ~7s, so a lower threshold makes the "still waiting" line
+# fire on almost every call and land glued to the answer it was meant to precede.
+_SLOW_TOOL_SECONDS = 12.0
+_LOGGED_RESPONSE_CHARS = 300
 
 
 @contextmanager
@@ -188,7 +191,9 @@ def _to_dspy_tool(client: Client, server_name: str, tool: types.Tool) -> Any:
             detail = response or "error without details"
             logger.warning("MCP ← {}/{}: {}", server_name, tool.name, detail)
             raise RuntimeError(f"MCP tool {tool.name} failed: {detail}")
-        logger.info("MCP ← {}/{}: {}", server_name, tool.name, response)
+        # The full payload is already in the DEBUG record above; a search result is
+        # kilobytes of prose and citations that would otherwise land in every INFO log.
+        logger.info("MCP ← {}/{}: {}", server_name, tool.name, _abbreviate(response))
         return (
             result.structured_content
             if result.structured_content is not None
@@ -202,6 +207,13 @@ def _to_dspy_tool(client: Client, server_name: str, tool: types.Tool) -> Any:
         args=arguments,
         arg_types={name: Any for name in arguments},
     )
+
+
+def _abbreviate(response: str) -> str:
+    collapsed = " ".join(response.split())
+    if len(collapsed) <= _LOGGED_RESPONSE_CHARS:
+        return collapsed
+    return f"{collapsed[:_LOGGED_RESPONSE_CHARS]}… (+{len(collapsed) - _LOGGED_RESPONSE_CHARS} chars)"
 
 
 def _content_as_text(content: list[types.ContentBlock]) -> str:

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 import orjson
@@ -36,7 +37,11 @@ class Mem0Memory:
         if self._client is not None:
             return
         with measure_performance("mem0.client.initialize"):
-            self._client = AsyncMemoryClient(api_key=self._api_key)
+            # The constructor performs blocking setup; running it inline would stall the
+            # event loop and serialize everything started alongside it.
+            self._client = await asyncio.to_thread(
+                AsyncMemoryClient, api_key=self._api_key
+            )
         logger.info("Mem0 connected")
 
     async def search(self, query: str) -> str:

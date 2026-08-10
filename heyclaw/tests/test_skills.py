@@ -10,7 +10,7 @@ async def test_skill_requires_its_configured_tool(tmp_path: Path) -> None:
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
         '---\nname: web-search\ndescription: Search the web\nmetadata: '
-        '{"heyclaw":{"requires":{"tools":["perplexity/perplexity_ask"]}}}\n'
+        '{"heyclaw":{"requires":{"tools":["perplexity/perplexity_search"]}}}\n'
         '---\n\nUse Perplexity.',
         encoding="utf-8",
     )
@@ -19,5 +19,5 @@ async def test_skill_requires_its_configured_tool(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError):
         await catalog.read_skill("web-search")
 
-    catalog.set_available_tools({"perplexity/perplexity_ask"})
+    catalog.set_available_tools({"perplexity/perplexity_search"})
     assert await catalog.read_skill("web-search") == "Use Perplexity."

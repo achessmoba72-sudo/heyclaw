@@ -149,8 +149,19 @@ class DspyResponseGenerator:
     async def start(self) -> None:
         with measure_performance("dspy.generator.start"):
             # The workspace summary needs the tool list, so it waits for the program;
-            # memory initialization is independent and runs alongside it.
-            await asyncio.gather(self._memory.start(), self._build_workspace_prompt())
+            # memory initialization is independent and runs alongside it. MCP transports
+            # use AnyIO cancel scopes, so they must be opened and closed by this task.
+            memory_task = asyncio.create_task(
+                self._memory.start(), name="heyclaw-memory-start"
+            )
+            try:
+                await self._build_workspace_prompt()
+                await memory_task
+            except BaseException:
+                memory_task.cancel()
+                await asyncio.gather(memory_task, return_exceptions=True)
+                await self._mcp_tools.close()
+                raise
 
     async def _build_workspace_prompt(self) -> None:
         await self._get_program()
@@ -252,10 +263,12 @@ class DspyResponseGenerator:
 
     async def close(self) -> None:
         with measure_performance("dspy.generator.close"):
-            await asyncio.gather(
-                self._mcp_tools.close(),
-                self._memory.close(),
-            )
+            # Match MCP startup's task; closing its AnyIO cancel scope from a task
+            # created by gather raises at runtime.
+            try:
+                await self._mcp_tools.close()
+            finally:
+                await self._memory.close()
 
     async def remember(self, user_message: str, assistant_message: str) -> None:
         await self._memory.add(user_message, assistant_message)

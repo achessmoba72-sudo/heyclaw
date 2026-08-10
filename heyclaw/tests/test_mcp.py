@@ -33,7 +33,10 @@ class FakeClient:
 
 class FakeSkills:
     def as_dspy_tool(self) -> Any:
-        return None
+        async def read_skill(name: str) -> str:
+            return f"Instructions for {name}"
+
+        return read_skill
 
     def set_available_tools(self, tools: set[str]) -> None:
         return None
@@ -58,14 +61,16 @@ class FakeMemory:
         return None
 
 
-def make_generator() -> DspyResponseGenerator:
+def make_generator(
+    mcp_tools: MCPToolProvider | None = None,
+) -> DspyResponseGenerator:
     return DspyResponseGenerator(
         provider="gemini",
         api_key="test-key",
         model="gemini-test",
         temperature=0.0,
         max_output_tokens=64,
-        mcp_tools=MCPToolProvider({}),
+        mcp_tools=mcp_tools or MCPToolProvider({}),
         skills=FakeSkills(),
         workspace_context=FakeWorkspace(),
         memory=FakeMemory(),
@@ -121,6 +126,30 @@ async def test_mcp_v2_tool_is_adapted_to_async_dspy_tool() -> None:
 
     assert result == "updated result"
     assert client.calls == [("perplexity_search", {"query": "latest news"})]
+
+
+async def test_mcp_transport_is_started_and_closed_in_the_same_task() -> None:
+    class TaskBoundMCPTools(MCPToolProvider):
+        def __init__(self) -> None:
+            super().__init__({})
+            self.started_by: asyncio.Task[Any] | None = None
+            self.closed_by: asyncio.Task[Any] | None = None
+
+        async def start(self) -> list[Any]:
+            self.started_by = asyncio.current_task()
+            return []
+
+        async def close(self) -> None:
+            self.closed_by = asyncio.current_task()
+
+    tools = TaskBoundMCPTools()
+    generator = make_generator(tools)
+
+    await generator.start()
+    await generator.close()
+
+    assert tools.started_by is not None
+    assert tools.closed_by is tools.started_by
 
 
 async def test_dspy_generator_yields_only_final_answer() -> None:

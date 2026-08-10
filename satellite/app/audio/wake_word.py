@@ -1,6 +1,7 @@
 from contextlib import suppress
 from pathlib import Path
 from time import monotonic
+from typing import Any
 
 import numpy as np
 import pyaudio
@@ -48,14 +49,27 @@ class WakeWordDetector:
         self._model_name = model_name
         self._threshold = threshold
         self._input_device_index = input_device_index
+        self._model: Any = None
+
+    def _load_model(self) -> Any:
+        """Load the model once and reuse it, so re-arming between sessions is free."""
+        if self._model is None:
+            from openwakeword.model import Model
+            from openwakeword.utils import download_models
+
+            # Also fetches the shared feature models that Model() needs for a bundled path.
+            download_models([self._model_name])
+            self._model = Model(
+                wakeword_models=[_resolve_model_reference(self._model_name)]
+            )
+        else:
+            # Drop the audio buffered before the previous conversation, which would
+            # otherwise be scored again and could re-trigger immediately.
+            self._model.reset()
+        return self._model
 
     def wait(self) -> float:
-        from openwakeword.model import Model
-        from openwakeword.utils import download_models
-
-        download_models([self._model_name])
-        model_reference = _resolve_model_reference(self._model_name)
-        model = Model(wakeword_models=[model_reference])
+        model = self._load_model()
         audio: pyaudio.PyAudio | None = None
         stream = None
         try:

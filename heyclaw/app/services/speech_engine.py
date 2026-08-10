@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
+from functools import partial
 from time import monotonic
 from typing import Any
 
@@ -99,6 +100,7 @@ class SpeechEngineRuntime:
         self._http_client: httpx.AsyncClient | None = None
         self._responses: dict[str, _SharedResponse] = {}
         self._seen_transcripts: dict[str, set[tuple[tuple[str, str], ...]]] = {}
+        self._memory_writes: set[asyncio.Task[None]] = set()
 
     async def serve(self) -> None:
         with measure_performance("speech_engine.agent.initialize"):
@@ -133,6 +135,9 @@ class SpeechEngineRuntime:
             await response.close()
         self._responses.clear()
         self._seen_transcripts.clear()
+        if self._memory_writes:
+            # Let pending writes finish rather than losing what the user just said.
+            await asyncio.gather(*tuple(self._memory_writes), return_exceptions=True)
         await self._generator.close()
         if self._http_client is not None:
             await self._http_client.aclose()
@@ -209,7 +214,30 @@ class SpeechEngineRuntime:
                 )
                 if response_parts and not response.persisted:
                     response.persisted = True
-                    await self._generator.remember(latest_user, spoken)
+                    self._remember(latest_user, spoken, conversation_id=conversation_id)
+
+    def _remember(
+        self, user_message: str, assistant_message: str, *, conversation_id: str
+    ) -> None:
+        """Persist the exchange without holding up the next transcript."""
+        task = asyncio.create_task(
+            self._generator.remember(user_message, assistant_message),
+            name=f"remember-{conversation_id}",
+        )
+        self._memory_writes.add(task)
+        task.add_done_callback(partial(self._on_memory_write_done, conversation_id))
+
+    def _on_memory_write_done(
+        self, conversation_id: str, task: asyncio.Task[None]
+    ) -> None:
+        self._memory_writes.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.bind(conversation_id=conversation_id).opt(exception=error).warning(
+                "Storing the conversation memory failed"
+            )
 
     @staticmethod
     async def _instrument_stream(
