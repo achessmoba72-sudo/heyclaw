@@ -9,6 +9,7 @@ import orjson
 from elevenlabs import AsyncElevenLabs
 from heyclaw_shared.performance import measure_performance
 from loguru import logger
+from rapidfuzz import fuzz, utils
 
 from app.domain.conversation import (
     has_meaningful_text,
@@ -19,6 +20,43 @@ from app.services.llm.dspy_backend import DspyResponseGenerator
 
 _SPEECH_ENGINE_PORT = 3001
 _SPEECH_ENGINE_PATH = "/ws"
+_ASR_REVISION_MIN_LENGTH = 12
+_ASR_REVISION_SCORE_CUTOFF = 95.0
+
+TranscriptFingerprint = tuple[tuple[str, str], ...]
+
+
+def _is_asr_revision(
+    current: TranscriptFingerprint,
+    candidate: TranscriptFingerprint,
+) -> bool:
+    """Return whether only the latest user utterance has a minor ASR revision."""
+    if (
+        len(current) != len(candidate)
+        or not current
+        or current[:-1] != candidate[:-1]
+        or current[-1][0] != "user"
+        or candidate[-1][0] != "user"
+    ):
+        return False
+
+    current_text = utils.default_process(current[-1][1])
+    candidate_text = utils.default_process(candidate[-1][1])
+    if (
+        current_text is None
+        or candidate_text is None
+        or min(len(current_text), len(candidate_text)) < _ASR_REVISION_MIN_LENGTH
+    ):
+        return False
+
+    return (
+        fuzz.ratio(
+            current_text,
+            candidate_text,
+            score_cutoff=_ASR_REVISION_SCORE_CUTOFF,
+        )
+        >= _ASR_REVISION_SCORE_CUTOFF
+    )
 
 
 class _SharedResponse:
@@ -26,7 +64,7 @@ class _SharedResponse:
 
     def __init__(
         self,
-        fingerprint: tuple[tuple[str, str], ...],
+        fingerprint: TranscriptFingerprint,
         stream: AsyncIterator[str],
         *,
         conversation_id: str,
@@ -179,13 +217,31 @@ class SpeechEngineRuntime:
         fingerprint = tuple((message.role, message.content) for message in messages)
         response = self._responses.get(conversation_id)
         seen_transcripts = self._seen_transcripts.setdefault(conversation_id, set())
-        if fingerprint in seen_transcripts and (
-            response is None or response.fingerprint != fingerprint or response.done
+        response_matches = response is not None and response.fingerprint == fingerprint
+        is_asr_revision = response is not None and _is_asr_revision(
+            response.fingerprint, fingerprint
+        )
+        if (
+            response is not None
+            and not response.done
+            and (response_matches or is_asr_revision)
         ):
+            seen_transcripts.add(fingerprint)
+            if is_asr_revision:
+                response.fingerprint = fingerprint
+                bound_logger.debug(
+                    "ASR transcript revision: reusing the active response"
+                )
+            else:
+                bound_logger.debug("Duplicate transcript: reusing the active response")
+        elif fingerprint in seen_transcripts or (
+            response is not None and response.done and is_asr_revision
+        ):
+            seen_transcripts.add(fingerprint)
             bound_logger.debug("Previously handled transcript replayed: ignoring it")
             return
-        seen_transcripts.add(fingerprint)
-        if response is None or response.fingerprint != fingerprint:
+        else:
+            seen_transcripts.add(fingerprint)
             if response is not None:
                 await response.close()
             response = _SharedResponse(
@@ -194,8 +250,6 @@ class SpeechEngineRuntime:
                 conversation_id=conversation_id,
             )
             self._responses[conversation_id] = response
-        else:
-            bound_logger.debug("Duplicate transcript: reusing the active response")
         started_at = monotonic()
         response_parts: list[str] = []
         stream = self._instrument_stream(

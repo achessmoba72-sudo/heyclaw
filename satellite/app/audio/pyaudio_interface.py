@@ -81,6 +81,15 @@ class PyAudioInterface:
             else None
         )
         self._echo_cancellation_enabled = enable_echo_cancellation
+        self._local_vad_enabled = bool(
+            enable_local_barge_in
+            and self._echo_canceller is not None
+            and self._echo_canceller.vad_enabled()
+        )
+        if enable_local_barge_in and not self._local_vad_enabled:
+            logger.info(
+                "Local VAD is unavailable; falling back to ElevenLabs interruption detection"
+            )
         self._aec_lock = threading.Lock()
         self._aec_input_buffer = bytearray()
         self._aec_output_buffer = bytearray()
@@ -237,7 +246,7 @@ class PyAudioInterface:
                 processed_frame = self._echo_canceller.process_stream(frame)
                 if self._echo_cancellation_enabled:
                     processed.extend(processed_frame)
-                if self._assistant_speaking.is_set():
+                if self._local_vad_enabled and self._assistant_speaking.is_set():
                     if self._echo_canceller.has_voice():
                         self._consecutive_voice_frames += 1
                     else:

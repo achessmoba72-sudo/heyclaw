@@ -213,6 +213,17 @@ The configured Perplexity MCP server gives the web-search skill access to curren
 
 ## 🚀 Quick start
 
+After starting the backend and ngrok tunnel for the first time, create the
+ElevenLabs Speech Engine from a second terminal:
+
+```bash
+uv run --project heyclaw heyclaw-create-engine
+```
+
+Run this command again after changing ElevenLabs accounts. It creates the Speech
+Engine with the required `first_message` override enabled. Copy the generated
+`seng_...` ID into both `config.json` files before starting the satellite.
+
 ### Linux and WSL
 
 Install Python dependencies for both components from the repository root:
