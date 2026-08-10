@@ -10,7 +10,50 @@ from app.agent import SkillCatalog, WorkspaceContext
 from app.core.performance import measure_performance
 from app.domain.conversation import ConversationMessage
 from app.services.mcp import MCPToolEvent, MCPToolProvider, observe_mcp_tool_events
+from app.services.mcp.config import LLMProvider
 from app.services.memory.base import AgentMemory
+
+_MODEL_PROVIDER_ALIASES: dict[str, LLMProvider] = {
+    "google": "gemini",
+    "gemini": "gemini",
+    "openai": "openai",
+    "anthropic": "anthropic",
+}
+
+
+def _normalize_model(provider: LLMProvider, model: str) -> str:
+    model_name = model.strip()
+    if not model_name:
+        raise ValueError("defaults.agent.llmModel must not be empty")
+
+    prefix, separator, unprefixed_model = model_name.partition("/")
+    if separator:
+        model_provider = _MODEL_PROVIDER_ALIASES.get(prefix)
+        if model_provider is None:
+            raise ValueError(
+                f"Unsupported LLM provider prefix in defaults.agent.llmModel: {prefix}"
+            )
+        if model_provider != provider:
+            raise ValueError(
+                "defaults.agent.llmModel provider prefix does not match "
+                "defaults.agent.llmProvider"
+            )
+        model_name = unprefixed_model
+
+    if not model_name:
+        raise ValueError("defaults.agent.llmModel must include a model name")
+
+    return f"{provider}/{model_name}"
+
+
+def _supports_configurable_temperature(model: str) -> bool:
+    default_temperature_only = (
+        "openai/gpt-5",
+        "anthropic/claude-sonnet-5",
+        "anthropic/claude-opus-5",
+        "anthropic/claude-fable-5",
+    )
+    return not model.startswith(default_temperature_only)
 
 
 class VoiceAssistant(dspy.Signature):
@@ -68,6 +111,7 @@ class DspyResponseGenerator:
     def __init__(
         self,
         *,
+        provider: LLMProvider,
         api_key: str,
         model: str,
         temperature: float,
@@ -78,19 +122,22 @@ class DspyResponseGenerator:
         memory: AgentMemory,
     ) -> None:
         if not api_key:
-            raise ValueError("providers.gemini.geminiApiKey is not configured")
-        model_name = model.removeprefix("google/")
-        normalized_model = (
-            model_name if model_name.startswith("gemini/") else f"gemini/{model_name}"
-        )
-        self._lm = dspy.LM(
-            normalized_model,
-            api_key=api_key,
-            temperature=temperature,
-            max_tokens=max_output_tokens,
-            cache=False,
-            num_retries=0,
-        )
+            api_key_name = {
+                "gemini": "geminiApiKey",
+                "openai": "openaiApiKey",
+                "anthropic": "anthropicApiKey",
+            }[provider]
+            raise ValueError(f"providers.{provider}.{api_key_name} is not configured")
+        normalized_model = _normalize_model(provider, model)
+        lm_options: dict[str, Any] = {
+            "api_key": api_key,
+            "max_tokens": max_output_tokens,
+            "cache": False,
+            "num_retries": 0,
+        }
+        if _supports_configurable_temperature(normalized_model):
+            lm_options["temperature"] = temperature
+        self._lm = dspy.LM(normalized_model, **lm_options)
         self._mcp_tools = mcp_tools
         self._skills = skills
         self._workspace_context = workspace_context

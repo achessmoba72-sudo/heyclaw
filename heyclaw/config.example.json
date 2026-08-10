@@ -3,6 +3,7 @@
     "workspace": "./workspace",
     "agent": {
       "firstMessage": "Hello, I'm Andromeda. How can I help you today?",
+      "llmProvider": "gemini",
       "llmModel": "gemini-3.1-flash-lite",
       "llmTemperature": 0.2,
       "llmMaxOutputTokens": 320,
@@ -23,6 +24,12 @@
   "providers": {
     "gemini": {
       "geminiApiKey": ""
+    },
+    "openai": {
+      "openaiApiKey": ""
+    },
+    "anthropic": {
+      "anthropicApiKey": ""
     },
     "elevenlabs": {
       "elevenlabsApiKey": "",

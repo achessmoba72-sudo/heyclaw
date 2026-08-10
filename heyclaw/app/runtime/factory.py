@@ -16,10 +16,10 @@ def create_dspy_response_generator(settings: Settings) -> DspyResponseGenerator:
     skills = SkillCatalog(workspace)
     mem0_config = config.defaults.memory.mem0
     agent_defaults = config.defaults.agent
-    gemini = config.providers.gemini
     memory = Mem0Memory(api_key=mem0_config.api_key)
     return DspyResponseGenerator(
-        api_key=gemini.gemini_api_key,
+        provider=agent_defaults.llm_provider,
+        api_key=config.providers.api_key_for(agent_defaults.llm_provider),
         model=agent_defaults.llm_model,
         temperature=agent_defaults.llm_temperature,
         max_output_tokens=agent_defaults.llm_max_output_tokens,

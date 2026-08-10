@@ -1,7 +1,10 @@
 from pathlib import Path
+from typing import Literal
 
 import orjson
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+LLMProvider = Literal["gemini", "openai", "anthropic"]
 
 
 class MCPServerConfig(BaseModel):
@@ -46,6 +49,7 @@ class AgentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     first_message: str = Field(alias="firstMessage", min_length=1)
+    llm_provider: LLMProvider = Field(default="gemini", alias="llmProvider")
     llm_model: str = Field(default="gemini-3.1-flash-lite", alias="llmModel")
     llm_temperature: float = Field(default=0.2, ge=0, le=2, alias="llmTemperature")
     llm_max_output_tokens: int = Field(
@@ -62,6 +66,18 @@ class GeminiProviderConfig(BaseModel):
     gemini_api_key: str = Field(default="", alias="geminiApiKey")
 
 
+class OpenAIProviderConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    openai_api_key: str = Field(default="", alias="openaiApiKey")
+
+
+class AnthropicProviderConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    anthropic_api_key: str = Field(default="", alias="anthropicApiKey")
+
+
 class ElevenLabsProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -75,9 +91,18 @@ class ProvidersConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     gemini: GeminiProviderConfig = Field(default_factory=GeminiProviderConfig)
+    openai: OpenAIProviderConfig = Field(default_factory=OpenAIProviderConfig)
+    anthropic: AnthropicProviderConfig = Field(default_factory=AnthropicProviderConfig)
     elevenlabs: ElevenLabsProviderConfig = Field(
         default_factory=ElevenLabsProviderConfig
     )
+
+    def api_key_for(self, provider: LLMProvider) -> str:
+        if provider == "gemini":
+            return self.gemini.gemini_api_key
+        if provider == "openai":
+            return self.openai.openai_api_key
+        return self.anthropic.anthropic_api_key
 
 
 class GatewayConfig(BaseModel):

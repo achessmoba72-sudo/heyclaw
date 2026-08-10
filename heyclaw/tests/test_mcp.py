@@ -60,6 +60,7 @@ class FakeMemory:
 
 def make_generator() -> DspyResponseGenerator:
     return DspyResponseGenerator(
+        provider="gemini",
         api_key="test-key",
         model="gemini-test",
         temperature=0.0,
