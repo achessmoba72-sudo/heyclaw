@@ -4,6 +4,8 @@ from typing import Protocol
 class AgentMemory(Protocol):
     async def start(self) -> None: ...
 
+    def profile_context(self) -> str: ...
+
     async def search(self, query: str) -> str: ...
 
     async def add(self, user_message: str, assistant_message: str) -> None: ...
@@ -16,6 +18,9 @@ class NullMemory:
 
     async def start(self) -> None:
         pass
+
+    def profile_context(self) -> str:
+        return ""
 
     async def search(self, query: str) -> str:
         return ""

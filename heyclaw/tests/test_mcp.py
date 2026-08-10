@@ -48,10 +48,17 @@ class FakeWorkspace:
 
 
 class FakeMemory:
+    def __init__(self) -> None:
+        self.search_calls: list[str] = []
+
     async def start(self) -> None:
         return None
 
+    def profile_context(self) -> str:
+        return ""
+
     async def search(self, query: str) -> str:
+        self.search_calls.append(query)
         return ""
 
     async def add(self, user_message: str, assistant_message: str) -> None:
@@ -165,6 +172,7 @@ async def test_dspy_generator_yields_only_final_answer() -> None:
     generator._program = FakeProgram()
 
     assert await generate(generator, "How are you?") == ["Speakable answer."]
+    assert generator._memory.search_calls == []
 
 
 async def test_dspy_generator_speaks_during_a_slow_mcp_tool(
@@ -198,3 +206,90 @@ async def test_dspy_generator_speaks_during_a_slow_mcp_tool(
         "The search needs a little more time. ",
         "Here is the result.",
     ]
+
+
+async def test_tool_status_is_not_repeated_by_the_final_answer() -> None:
+    tool = make_tool(FakeClient(), "perplexity_search", "Search the current web")
+
+    class FakeProgram:
+        async def acall(self, **_kwargs: Any) -> SimpleNamespace:
+            await tool.acall(query="latest news")
+            return SimpleNamespace(answer="I'll check now. Here is the result.")
+
+    class FakeStatusProgram:
+        async def acall(self, **_kwargs: Any) -> SimpleNamespace:
+            return SimpleNamespace(
+                acknowledgement="I'll check now.",
+                still_waiting="This needs a little more time.",
+            )
+
+    generator = make_generator()
+    generator._program = FakeProgram()
+    generator._tool_status_program = FakeStatusProgram()
+
+    assert await generate(generator, "Tell me the latest news") == [
+        "I'll check now. ",
+        "Here is the result.",
+    ]
+
+
+async def test_fast_tool_does_not_wait_for_a_slower_status_inference() -> None:
+    tool = make_tool(FakeClient(), "home_status", "Read the current home status")
+
+    class FakeProgram:
+        async def acall(self, **_kwargs: Any) -> SimpleNamespace:
+            await tool.acall(query="temperature")
+            return SimpleNamespace(answer="It is 21 degrees.")
+
+    class SlowStatusProgram:
+        async def acall(self, **_kwargs: Any) -> SimpleNamespace:
+            await asyncio.sleep(1)
+            return SimpleNamespace(
+                acknowledgement="I'll check that now.",
+                still_waiting="This needs a little more time.",
+            )
+
+    generator = make_generator()
+    generator._program = FakeProgram()
+    generator._tool_status_program = SlowStatusProgram()
+
+    assert await asyncio.wait_for(generate(generator, "How warm is it?"), 0.2) == [
+        "It is 21 degrees."
+    ]
+
+
+async def test_tool_status_receives_language_preference_from_memory() -> None:
+    tool = make_tool(FakeClient(delay=0.02), "perplexity_search", "Search the web")
+
+    class LanguageMemory(FakeMemory):
+        def profile_context(self) -> str:
+            return (
+                "- The user prefers concise answers.\n"
+                "- L'utente preferisce comunicare in italiano."
+            )
+
+    class FakeProgram:
+        async def acall(self, **_kwargs: Any) -> SimpleNamespace:
+            await tool.acall(query="Roma")
+            return SimpleNamespace(answer="Ecco il risultato.")
+
+    class LanguageAwareStatusProgram:
+        async def acall(self, **kwargs: Any) -> SimpleNamespace:
+            assert "comunicare in italiano" in kwargs["memory_context"]
+            return SimpleNamespace(
+                acknowledgement="Controllo subito.",
+                still_waiting="Mi serve ancora un momento.",
+            )
+
+    generator = make_generator()
+    generator._memory = LanguageMemory()
+    generator._program = FakeProgram()
+    generator._tool_status_program = LanguageAwareStatusProgram()
+    await generator.start()
+
+    assert [
+        chunk
+        async for chunk in generator.stream(
+            [ConversationMessage(role="user", content="Roma")]
+        )
+    ] == ["Controllo subito. ", "Ecco il risultato."]

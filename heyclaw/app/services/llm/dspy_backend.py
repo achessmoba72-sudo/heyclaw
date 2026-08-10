@@ -1,4 +1,5 @@
 import asyncio
+from collections import deque
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
@@ -6,6 +7,7 @@ from typing import Any
 import dspy
 import orjson
 from heyclaw_shared.performance import measure_performance
+from loguru import logger
 
 from app.agent import SkillCatalog, WorkspaceContext
 from app.domain.conversation import ConversationMessage, latest_user_content
@@ -65,9 +67,11 @@ class VoiceAssistant(dspy.Signature):
 
     When a request matches an available skill, read it with read_skill before using the external
     tools it describes. Do not use an external tool without an applicable skill. Do not invent
-    data or claim that a tool succeeded before receiving its result. Use semantic memories only
-    when they are relevant to the current request. If a skill or tool is unavailable or fails,
-    say so briefly. Return only the words to speak to the user, without reasoning, Markdown,
+    data or claim that a tool succeeded before receiving its result. Use relevant memories when
+    they help answer the request. Search long-term memory only when information from earlier
+    conversations is needed and not already available. After a tool returns, answer directly with
+    its result without narrating or announcing the tool call. If a skill or tool is unavailable or
+    fails, say so briefly. Return only the words to speak to the user, without reasoning, Markdown,
     technical names, arguments, payloads, skills, or internal calls.
     """
 
@@ -96,11 +100,14 @@ class ToolSpeechStatus(dspy.Signature):
     """
 
     memory_context: str = dspy.InputField(
-        desc="Relevant semantic memories about the user, including language preferences"
+        desc="Relevant semantic memories, including persistent language preferences"
     )
     user_request: str = dspy.InputField(desc="User's current request")
     tool_description: str = dspy.InputField(desc="Purpose of the selected tool")
     tool_arguments: str = dspy.InputField(desc="Call arguments, used only as context")
+    recent_acknowledgements: str = dspy.InputField(
+        desc="Recent acknowledgements that must not be repeated or closely imitated"
+    )
     acknowledgement: str = dspy.OutputField(
         desc="Immediate acknowledgement before the operation"
     )
@@ -137,6 +144,13 @@ class DspyResponseGenerator:
         if _supports_configurable_temperature(normalized_model):
             lm_options["temperature"] = temperature
         self._lm = dspy.LM(normalized_model, **lm_options)
+        status_lm_options = {
+            **lm_options,
+            "max_tokens": min(max_output_tokens, 48),
+        }
+        if _supports_configurable_temperature(normalized_model):
+            status_lm_options["temperature"] = max(0.9, temperature)
+        self._tool_status_lm = dspy.LM(normalized_model, **status_lm_options)
         self._mcp_tools = mcp_tools
         self._skills = skills
         self._workspace_context = workspace_context
@@ -144,6 +158,7 @@ class DspyResponseGenerator:
         self._memory = memory
         self._program: Any | None = None
         self._tool_status_program: Any = dspy.Predict(ToolSpeechStatus)
+        self._recent_tool_acknowledgements: deque[str] = deque(maxlen=8)
         self._program_lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -171,7 +186,7 @@ class DspyResponseGenerator:
         if self._workspace_prompt is None:
             raise RuntimeError("DSPy generator is not initialized")
         latest_user = latest_user_content(messages)
-        memory_context = await self._memory.search(latest_user)
+        memory_context = self._memory.profile_context()
         conversation = (
             f"GET DATE TODAY: {datetime.now().astimezone().isoformat(timespec='seconds')}\n"
             + "\n".join(
@@ -187,6 +202,7 @@ class DspyResponseGenerator:
             )
 
         waiting_messages: dict[int, str] = {}
+        spoken_statuses: list[str] = []
         try:
             while not answer_task.done() or not events.empty():
                 event_task = asyncio.create_task(events.get())
@@ -195,19 +211,38 @@ class DspyResponseGenerator:
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 if event_task in done:
-                    phrase = await self._tool_status(
-                        event_task.result(),
-                        latest_user,
-                        memory_context,
-                        waiting_messages,
+                    status_task = asyncio.create_task(
+                        self._tool_status(
+                            event_task.result(),
+                            latest_user,
+                            memory_context,
+                            waiting_messages,
+                        ),
+                        name="heyclaw-tool-status",
                     )
-                    if phrase:
-                        yield f"{phrase} "
+                    status_done, _ = await asyncio.wait(
+                        {answer_task, status_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if status_task in status_done:
+                        try:
+                            phrase = status_task.result()
+                        except Exception as error:
+                            logger.opt(exception=error).warning(
+                                "Tool speech status generation failed"
+                            )
+                        else:
+                            if phrase:
+                                spoken_statuses.append(phrase)
+                                yield f"{phrase} "
+                    else:
+                        status_task.cancel()
+                        await asyncio.gather(status_task, return_exceptions=True)
                 else:
                     event_task.cancel()
                     await asyncio.gather(event_task, return_exceptions=True)
 
-            answer = await answer_task
+            answer = _strip_leading_tool_status(await answer_task, spoken_statuses)
         finally:
             if not answer_task.done():
                 answer_task.cancel()
@@ -244,20 +279,30 @@ class DspyResponseGenerator:
             return waiting_messages.pop(event.call_id)
 
         with (
-            dspy.context(lm=self._lm),
+            dspy.context(lm=self._tool_status_lm),
             measure_performance("dspy.tool_status.generate"),
         ):
             prediction = await self._tool_status_program.acall(
-                memory_context=memory_context or "No relevant memories.",
                 user_request=latest_user,
+                memory_context=memory_context or "No relevant memories.",
                 tool_description=event.description,
                 tool_arguments=orjson.dumps(event.arguments).decode(),
+                recent_acknowledgements=(
+                    " | ".join(self._recent_tool_acknowledgements) or "None"
+                ),
             )
 
         acknowledgement = str(prediction.acknowledgement).strip()
         still_waiting = str(prediction.still_waiting).strip()
         if not acknowledgement or not still_waiting:
             raise ValueError("DSPy returned an empty tool acknowledgement")
+        if acknowledgement.casefold() in {
+            previous.casefold() for previous in self._recent_tool_acknowledgements
+        }:
+            logger.debug("Repeated tool acknowledgement suppressed")
+            acknowledgement = ""
+        else:
+            self._recent_tool_acknowledgements.append(acknowledgement)
         waiting_messages[event.call_id] = still_waiting
         return acknowledgement
 
@@ -273,6 +318,10 @@ class DspyResponseGenerator:
     async def remember(self, user_message: str, assistant_message: str) -> None:
         await self._memory.add(user_message, assistant_message)
 
+    async def _search_memory(self, query: str) -> str:
+        memories = await self._memory.search(query)
+        return memories or "No relevant long-term memories found."
+
     async def _get_program(self) -> Any:
         if self._program is not None:
             return self._program
@@ -282,6 +331,24 @@ class DspyResponseGenerator:
                 self._skills.set_available_tools(
                     self._mcp_tools.available_tool_sources()
                 )
-                tools = [self._skills.as_dspy_tool(), *mcp_tools]
+                memory_tool = dspy.Tool(
+                    func=self._search_memory,
+                    name="search_memory",
+                    desc=(
+                        "Search non-profile long-term memories from earlier conversations. "
+                        "Use only when the needed personal information is absent from the "
+                        "stable memory context."
+                    ),
+                )
+                tools = [self._skills.as_dspy_tool(), memory_tool, *mcp_tools]
                 self._program = dspy.ReAct(VoiceAssistant, tools=tools, max_iters=4)
         return self._program
+
+
+def _strip_leading_tool_status(answer: str, statuses: list[str]) -> str:
+    """Prevent the final answer from repeating an already spoken acknowledgement."""
+    stripped = answer.lstrip()
+    for status in statuses:
+        while stripped.casefold().startswith(status.casefold()):
+            stripped = stripped[len(status) :].lstrip(" ,;:-")
+    return stripped or answer

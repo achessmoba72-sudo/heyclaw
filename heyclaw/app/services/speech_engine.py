@@ -35,6 +35,7 @@ class _SharedResponse:
         self.persisted = False
         self.done = False
         self._chunks: list[str] = []
+        self._delivered_chunks = 0
         self._condition = asyncio.Condition()
         self._error: BaseException | None = None
         self._task = asyncio.create_task(
@@ -51,12 +52,22 @@ class _SharedResponse:
                         current_index < len(self._chunks) or self.done
                     )
                 )
-                chunks = self._chunks[index:]
-                index = len(self._chunks)
+                # A replacement SDK handler resumes the same response. Chunks already
+                # handed to the previous handler must not be spoken a second time.
+                start = max(index, self._delivered_chunks)
+                index = start
+                chunks = self._chunks[start:]
                 done = self.done
                 error = self._error
-            for chunk in chunks:
-                yield chunk
+            for chunk_index, chunk in enumerate(chunks, start=start):
+                try:
+                    yield chunk
+                finally:
+                    # Advance only after this individual chunk was handed to the
+                    # subscriber. If it is replaced mid-batch, later chunks remain.
+                    index = chunk_index + 1
+                    async with self._condition:
+                        self._delivered_chunks = max(self._delivered_chunks, index)
             if done:
                 if error is not None:
                     raise error

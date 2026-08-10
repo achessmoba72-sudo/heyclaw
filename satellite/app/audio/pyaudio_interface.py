@@ -10,8 +10,11 @@ from typing import Any
 import pyaudio
 from aec_audio_processing import AudioProcessor
 from heyclaw_shared.performance import measure_performance
+from loguru import logger
 
 _NATIVE_AUDIO_STDERR_LOCK = threading.Lock()
+_BARGE_IN_VOICE_FRAMES = 3
+_LOCAL_INTERRUPT_GUARD_SECONDS = 3.0
 
 
 def close_stream(stream: Any) -> None:
@@ -66,32 +69,41 @@ class PyAudioInterface:
         self._output_device_index = output_device_index
         self._gate_microphone_during_playback = gate_microphone_during_playback
         self._echo_guard_seconds = echo_guard_ms / 1000
+        enable_local_barge_in = not gate_microphone_during_playback
         self._echo_canceller = (
             AudioProcessor(
-                enable_aec=True,
+                enable_aec=enable_echo_cancellation,
                 enable_ns=False,
                 enable_agc=False,
-                enable_vad=False,
+                enable_vad=enable_local_barge_in,
             )
-            if enable_echo_cancellation
+            if enable_echo_cancellation or enable_local_barge_in
             else None
         )
+        self._echo_cancellation_enabled = enable_echo_cancellation
         self._aec_lock = threading.Lock()
         self._aec_input_buffer = bytearray()
         self._aec_output_buffer = bytearray()
         self._aec_frame_bytes = 0
         if self._echo_canceller is not None:
             self._echo_canceller.set_stream_format(self.sample_rate, 1)
-            self._echo_canceller.set_reverse_stream_format(self.sample_rate, 1)
-            self._echo_canceller.set_stream_delay(50)
+            if enable_echo_cancellation:
+                self._echo_canceller.set_reverse_stream_format(self.sample_rate, 1)
+                self._echo_canceller.set_stream_delay(50)
+            if enable_local_barge_in:
+                self._echo_canceller.set_vad_aggressiveness(2)
             self._aec_frame_bytes = self._echo_canceller.get_frame_size() * 2
         self._input_callback: Callable[[bytes], None] | None = None
-        self._output_queue: queue.Queue[bytes] = queue.Queue()
+        self._output_queue: queue.Queue[tuple[int, bytes]] = queue.Queue()
         self._should_stop = threading.Event()
         self._stop_lock = threading.Lock()
         self._stopped = False
         self._output_thread: threading.Thread | None = None
         self._assistant_speaking = threading.Event()
+        self._consecutive_voice_frames = 0
+        self._playback_lock = threading.Lock()
+        self._playback_generation = 0
+        self._drop_output_until = 0.0
         self._microphone_gate_until = 0.0
         self._audio: pyaudio.PyAudio | None = None
         self._input_stream: Any = None
@@ -104,6 +116,7 @@ class PyAudioInterface:
             self._stopped = False
             self._aec_input_buffer.clear()
             self._aec_output_buffer.clear()
+            self._consecutive_voice_frames = 0
             with suppress_native_audio_probe_noise():
                 self._audio = pyaudio.PyAudio()
                 self._input_stream = self._audio.open(
@@ -156,11 +169,20 @@ class PyAudioInterface:
             self._stop_lock.release()
 
     def output(self, audio: bytes) -> None:
-        if self._gate_microphone_during_playback:
+        with self._playback_lock:
+            if monotonic() < self._drop_output_until:
+                return
             self._assistant_speaking.set()
-        self._output_queue.put(audio)
+            self._output_queue.put((self._playback_generation, audio))
 
     def interrupt(self) -> None:
+        """Handle the authoritative interruption event received from ElevenLabs."""
+        self._interrupt_playback(drop_until=0.0)
+
+    def _interrupt_playback(self, *, drop_until: float) -> None:
+        with self._playback_lock:
+            self._playback_generation += 1
+            self._drop_output_until = drop_until
         try:
             while True:
                 self._output_queue.get_nowait()
@@ -168,20 +190,22 @@ class PyAudioInterface:
             with self._aec_lock:
                 self._aec_output_buffer.clear()
             self._assistant_speaking.clear()
+            self._consecutive_voice_frames = 0
             self._microphone_gate_until = monotonic() + self._echo_guard_seconds
 
     def _play_output(self) -> None:
         while not self._should_stop.is_set():
             try:
-                audio = self._output_queue.get(timeout=0.1)
+                generation, audio = self._output_queue.get(timeout=0.1)
             except queue.Empty:
                 self._pause_output_stream()
                 continue
             if self._output_stream is not None:
-                self._write_output(audio)
-            if self._gate_microphone_during_playback and self._output_queue.empty():
+                self._write_output(audio, generation=generation)
+            if self._output_queue.empty():
                 self._assistant_speaking.clear()
-                self._microphone_gate_until = monotonic() + self._echo_guard_seconds
+                if self._gate_microphone_during_playback:
+                    self._microphone_gate_until = monotonic() + self._echo_guard_seconds
 
     def _on_input(
         self,
@@ -203,22 +227,49 @@ class PyAudioInterface:
     def _process_input(self, audio: bytes) -> bytes:
         if self._echo_canceller is None:
             return audio
+        barge_in_detected = False
         with self._aec_lock:
             self._aec_input_buffer.extend(audio)
             processed = bytearray()
             while len(self._aec_input_buffer) >= self._aec_frame_bytes:
                 frame = bytes(self._aec_input_buffer[: self._aec_frame_bytes])
                 del self._aec_input_buffer[: self._aec_frame_bytes]
-                processed.extend(self._echo_canceller.process_stream(frame))
-            return bytes(processed)
+                processed_frame = self._echo_canceller.process_stream(frame)
+                if self._echo_cancellation_enabled:
+                    processed.extend(processed_frame)
+                if self._assistant_speaking.is_set():
+                    if self._echo_canceller.has_voice():
+                        self._consecutive_voice_frames += 1
+                    else:
+                        self._consecutive_voice_frames = 0
+                    if self._consecutive_voice_frames >= _BARGE_IN_VOICE_FRAMES:
+                        barge_in_detected = True
+                else:
+                    self._consecutive_voice_frames = 0
+        if barge_in_detected:
+            logger.info("Local barge-in detected; stopping playback")
+            self._interrupt_playback(
+                drop_until=monotonic() + _LOCAL_INTERRUPT_GUARD_SECONDS
+            )
+        return bytes(processed) if self._echo_cancellation_enabled else audio
 
-    def _write_output(self, audio: bytes) -> None:
+    def _write_output(self, audio: bytes, *, generation: int | None = None) -> None:
         if self._output_stream is None:
             return
+        if generation is None:
+            with self._playback_lock:
+                generation = self._playback_generation
         if not self._output_stream.is_active():
             self._output_stream.start_stream()
-        if self._echo_canceller is None:
-            self._output_stream.write(audio, exception_on_underflow=False)
+        if not self._echo_cancellation_enabled:
+            frame_bytes = self.sample_rate // 100 * 2
+            for offset in range(0, len(audio), frame_bytes):
+                if self._playback_was_interrupted(generation):
+                    return
+                self._output_stream.write(
+                    audio[offset : offset + frame_bytes],
+                    exception_on_underflow=False,
+                )
             return
         with self._aec_lock:
             self._aec_output_buffer.extend(audio)
@@ -228,8 +279,15 @@ class PyAudioInterface:
                     return
                 frame = bytes(self._aec_output_buffer[: self._aec_frame_bytes])
                 del self._aec_output_buffer[: self._aec_frame_bytes]
-                self._echo_canceller.process_reverse_stream(frame)
+                if self._echo_cancellation_enabled:
+                    self._echo_canceller.process_reverse_stream(frame)
+            if self._playback_was_interrupted(generation):
+                return
             self._output_stream.write(frame, exception_on_underflow=False)
+
+    def _playback_was_interrupted(self, generation: int) -> bool:
+        with self._playback_lock:
+            return generation != self._playback_generation
 
     def _pause_output_stream(self) -> None:
         if self._output_stream is None:
